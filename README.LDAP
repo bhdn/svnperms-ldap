@@ -1,0 +1,110 @@
+How to use LDAP with svnperms.py
+================================
+
+In this modified version of svnperms.py the configuration can refer to
+groups that are defined in a LDAP server. In order to enable it you must
+add two sections to your svnperms.conf: [global] and [ldap].
+
+Configuration
+-------------
+
+In the [global] section you must set the permissions-source option to
+ldap::
+
+  [global]
+  permissions-source = ldap
+
+Then you must set LDAP-specific options in the [ldap] section. These are
+the ones you can use:
+
+  host [required]
+
+  port [optional] [default: 389]
+
+  binddn [optional] [default: no bind]
+
+  bindpw [optional] [default: empty]
+
+  basedn [required]
+
+  use-starttls [optional] [default: no]
+
+    Enables the use of the StartTLS extended operation. Use "yes" or "no".
+
+  groups-filter-format [required]
+
+    The format of the filter used to retrieve the groups of the user trying
+    to perform the transaction. The variable '$user' will be replaced by
+    the user name before performing the search.
+
+     Usually it is something like::
+
+      (&(objectClass=groupOfNames)(member=uid=$user,ou=People,dc=example,dc=com))
+
+  groups-name-attribute [optional] [default: cn]
+
+     The name of the attribute used to retrieve the group name from the
+     search described in the previous option.
+
+  scope [optional] [default: one]
+
+     The scope of the group search. Must be one "one", "sub" or "base".
+     
+     one
+       only entry level after basedn
+
+     sub
+       all the subtree below basedn
+
+     base
+       only the level of basedn
+
+Example
+-------
+
+This is one sample configuration file::
+
+  [global]
+  permissions-source = ldap
+
+  [ldap]
+  host = localhost
+  port = 22389
+  basedn = ou=Group,dc=example,dc=com
+  groups-filter-format = (&(objectClass=groupOfNames)(member=uid=$user,ou=People,dc=example,dc=com))
+  groups-name-attribute = cn
+
+  [groups]
+  # local groups are still valid and have precedence over LDAP ones
+  admins = austin barbara chris
+
+  [projects]
+  projects/.* = @admins(add,remove,update)
+  projects/[^/]+/trunk/.* = @developers(add,remove,update)
+  projects/[^/]+/tags/.* = @developers(add)
+  projects/[^/]+/branches/.* = @developers(add,remove,update)
+  projects/frobnicator/.* = @frob-developers(add,remove,update)
+
+Suppose calvin is member of the group frob-developers, if he tries to
+commit something, it will perform one search with the following filter::
+
+  (&(objectClass=groupOfNames)(member=uid=calvin,ou=People,dc=example,dc=com))
+
+Searching with ldapsearch would be the same as::
+
+  ldapsearch -x -h localhost -p 22389 -b ou=Group,dc=example,dc=com \
+             -s one -LLL \
+            '(&(objectClass=groupOfNames)(member=uid=calvin,ou=People,dc=example,dc=com))' \
+            cn
+
+And would result in::
+
+  dn: cn=outsiders,ou=Group,dc=example,dc=com
+  cn: outsiders
+
+  dn: cn=frob-developers,ou=Group,dc=example,dc=com
+  cn: frob-developers
+
+Then svnperms.py uses the attribute 'cn', defined in the
+'groups-name-attribute' to check if the group frob-developers is in the
+list of groups retrieved from the LDAP search.
